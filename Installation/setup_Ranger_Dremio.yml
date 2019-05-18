@@ -1,0 +1,66 @@
+---
+- name: Fetch Ranger Keys and copy them into Dremio
+  gather_facts: false
+  hosts: all
+  user: centos
+  vars:
+    rang_keystore_cred_file: "rangercred.jceks"
+    rang_keystore_file: "ranger-plugin-keystore.jks"
+    rang_trust_cred_file: ""
+    rang_trust_file: ""
+
+
+  tasks:
+  - name: Cleanup first
+    file: name={{item}} state=absent
+    with_items:
+      - "{{rang_keystore_cred_file}}"
+      - "{{rang_keystore_file}}"
+      - "{{rang_trust_file}}"
+      - "{{rang_trust_cred_file}}"
+  - name: Pull xasecure.policymgr.clientssl.keystore.credential.file
+    fetch: src=/etc/ranger/tagsync/{{rang_keystore_cred_file}} dest=ranger_cr_files/{{rang_keystore_cred_file}} fail_on_missing=no flat=yes
+    become: true
+
+  - name: Pull xasecure.policymgr.clientssl.keystore
+    fetch: src=/etc/security/serverKeys/{{rang_keystore_file}} dest=ranger_cr_files/{{rang_keystore_file}} fail_on_missing=no flat=yes
+
+  - name: Pull xasecure.policymgr.clientssl.truststore
+    fetch: src=/etc/security/serverKeys/{{rang_trust_file}} dest=ranger_cr_files/{{rang_trust_file}} fail_on_missing=no flat=yes
+#TODO: what is this file?
+  - name: Pull xasecure.policymgr.clientssl.truststore.credential.file
+    fetch: src=/etc/security/serverKeys/ranger-tagsync-mytruststore.jks dest=ranger_cr_files/ranger-tagsync-mytruststore.jks fail_on_missing=no flat=yes
+
+## Setup the Dremio Coordinator Nodes
+# TODO: Change the hosts here to executor
+- name: Copy the Ranger keystore, truststore and credentials files to all coordinator nodes and owned by the dremio user
+  hosts: master
+  user: dremio
+  vars:
+    dremio_user: "dremio"
+    dremio_conf: "/opt/dremio/conf"
+    rang_keystore_cred_file: "rangercred.jceks"
+    rang_keystore_file: "ranger-tagsync-keystore.jks"
+    rang_trust_cred_file: ""
+    rang_trust_file: "ranger-tagsync-mytruststore.jks"
+  tasks:
+  - name: Copy cr files into dremio/conf
+    copy:
+      src: "ranger_cr_files/{{item}}"
+      dest: "{{dremio_conf}}/{{item}}"
+      owner: "{{dremio_user}}"
+      group: "{{dremio_user}}"
+    with_items:
+      - "{{rang_keystore_cred_file}}"
+      - "{{rang_keystore_file}}"
+      - "{{rang_trust_file}}"
+      - "{{rang_trust_cred_file}}"
+    become: true
+
+  - name: Copy the policymgr-ssl template into dremio/conf
+    template:
+      src: "ranger_Dremio_files/policymgr-ssl.xml"
+      dest: "{{dremio_conf}}"
+      owner: "{{dremio_user}}"
+      group: "{{dremio_user}}"
+    become: true
